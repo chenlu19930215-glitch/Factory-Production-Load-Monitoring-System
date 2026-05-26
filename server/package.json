@@ -1,0 +1,16 @@
+{
+  "name": "factory-load-monitor-server",
+  "version": "1.0.0",
+  "description": "工厂负载监控系统 - 从金蝶 ERP 拉取 SFC_OperationReport 数据并聚合计算车间/设备负载率和产出率",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0"
+  }
+}
