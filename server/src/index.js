@@ -15,6 +15,8 @@ const cors = require('cors');
 const path = require('path');
 const config = require('./config');
 const monitorRouter = require('./routes/monitor');
+const authRouter = require('./routes/auth');
+const { authMiddleware } = require('./middleware/auth');
 
 const app = express();
 const PORT = config.server.port;
@@ -30,14 +32,18 @@ app.use((req, res, next) => {
 });
 
 // ==== 路由 ====
-app.use('/api/monitor', monitorRouter);
+// 认证路由（不需要登录）
+app.use('/api/auth', authRouter);
+
+// 监控路由（需要 JWT 验证）
+app.use('/api/monitor', authMiddleware, monitorRouter);
 
 // 初始化聚合引擎并预热缓存
 const engine = monitorRouter.initEngine();
 console.log('[server] 聚合引擎已初始化，正在预热缓存...');
 
 // 后台预热三个维度的缓存，不阻塞服务启动
-['day', 'week', 'month'].forEach((dim) => {
+['day', 'week', 'month', 'year'].forEach((dim) => {
   engine.fetchAndAggregate(dim).then(() => {
     console.log(`[server] 缓存预热完成 dimension=${dim}`);
   }).catch((err) => {

@@ -13,9 +13,9 @@ const chartRef = ref(null)
 let chartInstance = null
 
 const gaugeColor = computed(() => {
-  if (props.value >= 85) return '#52c41a'
-  if (props.value >= 70) return '#faad14'
-  return '#ff4d4f'
+  if (props.value >= 85) return '#22C55E'
+  if (props.value >= 70) return '#F59E0B'
+  return '#EF4444'
 })
 
 function initChart() {
@@ -41,9 +41,9 @@ function renderChart() {
           lineStyle: {
             width: 12,
             color: [
-              [0.7, '#faad14'],
-              [0.85, '#52c41a'],
-              [1, '#ff4d4f'],
+              [0.7, '#F59E0B'],
+              [0.85, '#22C55E'],
+              [1, '#EF4444'],
             ],
           },
         },
@@ -106,9 +106,10 @@ watch(
 
 <style scoped>
 .gauge-chart-wrapper {
-  background: #fff;
-  border-radius: 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
   padding: 8px;
+  box-shadow: var(--shadow-sm);
 }
 
 .gauge-chart-echart {

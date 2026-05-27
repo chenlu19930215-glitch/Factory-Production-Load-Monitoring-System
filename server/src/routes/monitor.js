@@ -61,8 +61,8 @@ function setCache(key, data) {
  */
 function parseDimension(req) {
   const dim = (req.query.dimension || 'day').toLowerCase();
-  if (!['day', 'week', 'month'].includes(dim)) {
-    return { valid: false, error: 'dimension 必须是 day、week 或 month' };
+  if (!['day', 'week', 'month', 'year'].includes(dim)) {
+    return { valid: false, error: 'dimension 必须是 day、week、month 或 year' };
   }
   return { valid: true, dimension: dim };
 }

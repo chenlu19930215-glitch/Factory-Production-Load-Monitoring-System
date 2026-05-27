@@ -52,10 +52,14 @@ function renderChart() {
 
   chartInstance.setOption({
     title: props.title
-      ? { text: props.title, textStyle: { fontSize: 14, fontWeight: 500 }, left: 'center' }
+      ? { text: props.title, textStyle: { fontSize: 14, fontWeight: 600, color: '#1E293B' }, left: 'center', top: 8 }
       : undefined,
     tooltip: {
       trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: '#E2E8F0',
+      borderWidth: 1,
+      textStyle: { fontSize: 12, color: '#1E293B' },
       formatter: (params) => {
         const idx = params[0].dataIndex
         const item = props.data[idx]
@@ -66,18 +70,18 @@ function renderChart() {
         return html
       },
     },
-    grid: { left: 50, right: 20, top: props.title ? 40 : 20, bottom: 30 },
+    grid: { left: 48, right: 16, top: props.title ? 44 : 20, bottom: 28 },
     xAxis: {
       type: 'category',
       data: props.data.map((d) => d.label),
-      axisLine: { lineStyle: { color: '#e8e8e8' } },
-      axisLabel: { color: '#999', fontSize: 11 },
+      axisLine: { lineStyle: { color: '#E2E8F0' } },
+      axisLabel: { color: '#94A3B8', fontSize: 11 },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
-      axisLabel: { color: '#999', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
+      axisLabel: { color: '#94A3B8', fontSize: 11 },
     },
     series,
   })

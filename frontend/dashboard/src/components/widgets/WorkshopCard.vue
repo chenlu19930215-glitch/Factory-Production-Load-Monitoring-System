@@ -14,58 +14,92 @@ const emit = defineEmits(['click'])
 
 const statusConfig = computed(() => {
   const map = {
-    health: { label: '健康', color: '#52c41a', bg: '#f6ffed' },
-    warning: { label: '注意', color: '#faad14', bg: '#fffbe6' },
-    danger: { label: '预警', color: '#ff4d4f', bg: '#fff2f0' },
+    health: { label: '健康', color: '#22C55E', bg: '#F0FDF4' },
+    warning: { label: '注意', color: '#F59E0B', bg: '#FFFBEB' },
+    danger: { label: '预警', color: '#EF4444', bg: '#FEF2F2' },
   }
   return map[props.status] || map.health
 })
 
-const statusDotColor = computed(() => statusConfig.value.color)
+const borderColor = computed(() => statusConfig.value.color)
+
+const outputRateBarWidth = computed(() => Math.min(Math.max(props.outputRate, 0), 100))
+const loadRateBarWidth = computed(() => Math.min(Math.max(props.loadRate, 0), 100))
+
+const outputRateColor = computed(() => {
+  if (props.outputRate >= 85) return '#22C55E'
+  if (props.outputRate >= 70) return '#F59E0B'
+  return '#EF4444'
+})
 </script>
 
 <template>
   <div class="workshop-card" @click="emit('click')">
-    <div class="workshop-header">
-      <span class="workshop-name">{{ name }}</span>
-      <span class="status-dot" :style="{ backgroundColor: statusDotColor }"></span>
-    </div>
-    <div class="workshop-metrics">
-      <div class="metric-item">
-        <span class="metric-label">产出率</span>
-        <span class="metric-value" :style="{ color: statusConfig.color }">{{ outputRate }}%</span>
+    <div class="workshop-border" :style="{ background: borderColor }"></div>
+    <div class="workshop-body">
+      <div class="workshop-header">
+        <span class="workshop-name">{{ name }}</span>
+        <span class="workshop-badge" :style="{ color: statusConfig.color, background: statusConfig.bg }">
+          <svg width="6" height="6" viewBox="0 0 6 6" fill="currentColor">
+            <circle cx="3" cy="3" r="3"/>
+          </svg>
+          {{ statusConfig.label }}
+        </span>
       </div>
-      <div class="metric-item">
-        <span class="metric-label">产出量</span>
-        <span class="metric-value metric-quantity">{{ totalOutput.toLocaleString() }}<span class="metric-unit">{{ outputUnit }}</span></span>
+
+      <div class="workshop-metrics">
+        <div class="metric-item">
+          <span class="metric-label">产出率</span>
+          <span class="metric-value" :style="{ color: outputRateColor }">{{ outputRate }}%</span>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: outputRateBarWidth + '%', background: outputRateColor }"></div>
+          </div>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">产出量</span>
+          <span class="metric-value metric-qty">{{ totalOutput.toLocaleString() }}</span>
+          <span class="metric-unit">{{ outputUnit }}</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">负载率</span>
+          <span class="metric-value">{{ loadRate }}%</span>
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: loadRateBarWidth + '%', background: '#3B82F6' }"></div>
+          </div>
+        </div>
       </div>
-      <div class="metric-item">
-        <span class="metric-label">负载率</span>
-        <span class="metric-value">{{ loadRate }}%</span>
-      </div>
-    </div>
-    <div class="workshop-status" :style="{ color: statusConfig.color, backgroundColor: statusConfig.bg }">
-      {{ statusConfig.label }}
     </div>
   </div>
 </template>
 
 <style scoped>
 .workshop-card {
-  background: #fff;
-  border-radius: 8px;
-  padding: 16px 20px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.15s;
+  transition: box-shadow 0.25s, transform 0.25s;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  overflow: hidden;
+  position: relative;
 }
 
 .workshop-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+}
+
+.workshop-border {
+  width: 4px;
+  flex-shrink: 0;
+}
+
+.workshop-body {
+  flex: 1;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .workshop-header {
@@ -77,55 +111,68 @@ const statusDotColor = computed(() => statusConfig.value.color)
 .workshop-name {
   font-size: 15px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.workshop-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
 }
 
 .workshop-metrics {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
 }
 
 .metric-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+  flex: 1;
 }
 
 .metric-label {
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .metric-value {
   font-size: 18px;
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
-.metric-quantity {
-  font-size: 15px;
+.metric-qty {
+  font-size: 16px;
 }
 
 .metric-unit {
-  font-size: 12px;
-  font-weight: 400;
-  color: #999;
-  margin-left: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
-.workshop-status {
-  align-self: flex-start;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 10px;
-  border-radius: 10px;
+.progress-track {
+  width: 80%;
+  height: 4px;
+  background: #F1F5F9;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 </style>

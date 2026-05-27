@@ -14,6 +14,7 @@ const dimensions = [
   { label: '日', value: 'day' },
   { label: '周', value: 'week' },
   { label: '月', value: 'month' },
+  { label: '年', value: 'year' },
 ]
 
 const currentDimension = ref(route.query.dimension || 'day')
@@ -194,16 +195,16 @@ watch(currentDimension, loadData)
 .page-title {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .dimension-switcher {
   display: flex;
   gap: 4px;
-  background: #fff;
-  border-radius: 6px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
   padding: 3px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 .dim-btn {
@@ -212,17 +213,17 @@ watch(currentDimension, loadData)
   background: transparent;
   border-radius: 4px;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .dim-btn:hover {
-  color: #1890ff;
+  color: var(--primary-light);
 }
 
 .dim-btn.active {
-  background: #1890ff;
+  background: var(--primary);
   color: #fff;
 }
 
@@ -235,7 +236,7 @@ watch(currentDimension, loadData)
 .section-title {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   margin-bottom: 12px;
 }
 

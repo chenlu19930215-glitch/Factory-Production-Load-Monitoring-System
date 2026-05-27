@@ -1,52 +1,110 @@
 <script setup>
-defineProps({
+import { ref, onMounted, watch } from 'vue'
+
+const props = defineProps({
   title: { type: String, default: '' },
   value: { type: [String, Number], default: '' },
   unit: { type: String, default: '' },
   color: { type: String, default: '#1890ff' },
 })
+
+const displayValue = ref('')
+const targetNum = ref(0)
+const isNumber = ref(false)
+
+function animateValue() {
+  const val = props.value
+  if (val === '--' || val === '' || val === null || val === undefined) {
+    displayValue.value = '--'
+    isNumber.value = false
+    return
+  }
+  const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val
+  if (isNaN(num)) {
+    displayValue.value = String(val)
+    isNumber.value = false
+    return
+  }
+  isNumber.value = true
+  targetNum.value = num
+  const duration = 400
+  const start = performance.now()
+  const startVal = 0
+
+  function tick(now) {
+    const elapsed = now - start
+    const progress = Math.min(elapsed / duration, 1)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    const current = startVal + (targetNum.value - startVal) * eased
+    if (Number.isInteger(targetNum.value)) {
+      displayValue.value = Math.round(current).toLocaleString()
+    } else {
+      displayValue.value = current.toFixed(1)
+    }
+    if (progress < 1) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+onMounted(animateValue)
+watch(() => props.value, animateValue)
 </script>
 
 <template>
   <div class="metric-card">
+    <div class="metric-accent" :style="{ background: color }"></div>
     <div class="metric-title">{{ title }}</div>
     <div class="metric-value" :style="{ color }">
-      {{ value }}
-      <span v-if="unit" class="metric-unit">{{ unit }}</span>
+      {{ displayValue }}
+      <span v-if="unit && displayValue !== '--'" class="metric-unit">{{ unit }}</span>
     </div>
   </div>
 </template>
 
 <style scoped>
 .metric-card {
-  background: #fff;
-  border-radius: 8px;
-  padding: 20px 24px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
   text-align: center;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.25s, transform 0.25s;
+  position: relative;
+  overflow: hidden;
 }
 
 .metric-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.metric-accent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  opacity: 0.8;
 }
 
 .metric-title {
-  font-size: 14px;
-  color: #999;
-  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
 }
 
 .metric-value {
   font-size: 28px;
   font-weight: 700;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 .metric-unit {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 400;
-  margin-left: 4px;
-  color: inherit;
+  margin-left: 3px;
+  opacity: 0.75;
 }
 </style>

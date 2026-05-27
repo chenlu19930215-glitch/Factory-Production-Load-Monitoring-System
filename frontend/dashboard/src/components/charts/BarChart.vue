@@ -6,7 +6,7 @@ const props = defineProps({
   data: { type: Array, default: () => [] },
   title: { type: String, default: '' },
   height: { type: Number, default: 300 },
-  barColor: { type: String, default: '#1890ff' },
+  barColor: { type: String, default: '#3B82F6' },
   colors: { type: Array, default: null },
 })
 
@@ -16,7 +16,7 @@ let chartInstance = null
 function initChart() {
   if (!chartRef.value) return
   if (chartInstance) chartInstance.dispose()
-  chartInstance = echarts.init(chartRef.value)
+  chartInstance = echarts.init(chartRef.value, null, { renderer: 'canvas' })
   renderChart()
 }
 
@@ -25,28 +25,32 @@ function renderChart() {
 
   chartInstance.setOption({
     title: props.title
-      ? { text: props.title, textStyle: { fontSize: 14, fontWeight: 500 }, left: 'center' }
+      ? { text: props.title, textStyle: { fontSize: 14, fontWeight: 600, color: '#1E293B' }, left: 'center', top: 8 }
       : undefined,
     tooltip: {
       trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: '#E2E8F0',
+      borderWidth: 1,
+      textStyle: { fontSize: 12, color: '#1E293B' },
       formatter: (params) => {
         const p = params[0]
         const val = p.value !== undefined ? p.value.toLocaleString() : p.value
         return `${p.name}<br/>${p.marker} ${val}`
       },
     },
-    grid: { left: 50, right: 20, top: props.title ? 40 : 20, bottom: 30 },
+    grid: { left: 48, right: 16, top: props.title ? 44 : 20, bottom: 28 },
     xAxis: {
       type: 'category',
       data: props.data.map((d) => d.label),
-      axisLine: { lineStyle: { color: '#e8e8e8' } },
-      axisLabel: { color: '#999', fontSize: 11, rotate: props.data.length > 8 ? 30 : 0 },
+      axisLine: { lineStyle: { color: '#E2E8F0' } },
+      axisLabel: { color: '#94A3B8', fontSize: 11, rotate: props.data.length > 8 ? 30 : 0 },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
-      axisLabel: { color: '#999', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
+      axisLabel: { color: '#94A3B8', fontSize: 11 },
     },
     series: [
       {
@@ -64,10 +68,12 @@ function renderChart() {
         itemStyle: props.colors ? undefined : {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: props.barColor },
-            { offset: 1, color: props.barColor + '66' },
+            { offset: 1, color: props.barColor + '44' },
           ]),
           borderRadius: [4, 4, 0, 0],
         },
+        animationDuration: 500,
+        animationEasing: 'cubicOut',
       },
     ],
   })
@@ -105,9 +111,10 @@ watch(
 
 <style scoped>
 .bar-chart-wrapper {
-  background: #fff;
-  border-radius: 8px;
-  padding: 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 8px 8px 4px;
+  box-shadow: var(--shadow-sm);
 }
 
 .bar-chart-echart {

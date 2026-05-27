@@ -82,7 +82,7 @@ function getISOWeekNumber(date) {
 /**
  * 获取时段标识
  * @param {string|Date} dateStr - 'YYYY-MM-DD' 或 Date
- * @param {string} dimension - 'day' | 'week' | 'month'
+ * @param {string} dimension - 'day' | 'week' | 'month' | 'year'
  * @returns {string} 时段 key
  */
 function getPeriodKey(dateStr, dimension) {
@@ -96,6 +96,8 @@ function getPeriodKey(dateStr, dimension) {
     }
     case 'month':
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    case 'year':
+      return `${d.getFullYear()}`;
     default:
       return dateStr;
   }
@@ -260,7 +262,7 @@ class AggregationEngine {
 
     const rawResult = await this.client.executeBillQueryAll('SFC_OperationReport', {
       fieldKeys: extendedKeys,
-      filter: '',
+      filter: "FDOCUMENTSTATUS = 'C'",
       orderString: 'FDate ASC',
     });
 
@@ -479,6 +481,13 @@ class AggregationEngine {
     const workshopPeriods = this._aggregateToPeriods(dailyWorkshopMap, dimension, 'workshop');
     const equipmentPeriods = this._aggregateToPeriods(dailyEquipmentMap, dimension, 'equipment');
 
+    // 年维度下额外按月聚合，供趋势图展示月度数据
+    let monthlyWorkshopData, monthlyEquipmentData;
+    if (dimension === 'year') {
+      monthlyWorkshopData = this._aggregateToPeriods(dailyWorkshopMap, 'month', 'workshop');
+      monthlyEquipmentData = this._aggregateToPeriods(dailyEquipmentMap, 'month', 'equipment');
+    }
+
     // 汇总全厂
     // 提取API响应并转换比率值为百分比（0-1 → 0-100）
     const summary = this._computeSummary(workshopPeriods, equipmentPeriods, dimension);
@@ -487,6 +496,8 @@ class AggregationEngine {
       dimension,
       workshopPeriods,
       equipmentPeriods,
+      monthlyWorkshopData,
+      monthlyEquipmentData,
       summary,
     };
   }
@@ -750,11 +761,13 @@ class AggregationEngine {
       let workingDays;
       if (dimension === 'week') {
         workingDays = countWorkingDaysInWeek(year, week);
+      } else if (dimension === 'year') {
+        workingDays = countWorkingDays(`${year}-01-01`, _todayStr);
       } else {
         workingDays = countWorkingDaysInMonth(year, month);
       }
-      // 如果是当前月份/周，工作日天数封顶到今日（已过去的月份按全月）
-      if (_currentPeriodKey && bucket.periodKey === _currentPeriodKey) {
+      // 如果是当前月份/周/年，工作日天数封顶到今日（已过去的月份按全月）
+      if (_currentPeriodKey && bucket.periodKey === _currentPeriodKey && dimension !== 'year') {
         const startDate = dimension === 'week' ? getWeekDates(year, week)[0] : `${bucket.periodKey}-01`;
         workingDays = countWorkingDays(startDate, _todayStr);
       }
@@ -849,6 +862,8 @@ class AggregationEngine {
       for (let w = 1; w <= week; w++) {
         keys.push(`${year}-W${String(w).padStart(2, '0')}`);
       }
+    } else if (dimension === 'year') {
+      keys.push(`${year}`);
     } else {
       // day: 从年初到今天（用本地日期，避免 toISOString UTC 转换导致日期偏移）
       const start = new Date(year, 0, 1);
@@ -936,8 +951,12 @@ class AggregationEngine {
     workshops.sort((a, b) => a.name.localeCompare(b.name));
 
     // 产出趋势：从年初到当前所有时段，无数据的填0
+    const trendDim = dimension === 'year' ? 'month' : dimension;
+    const trendWsData = dimension === 'year' ? aggregated.monthlyWorkshopData : workshopPeriods;
+    const trendEqData = dimension === 'year' ? aggregated.monthlyEquipmentData : aggregated.equipmentPeriods;
+
     const outputByPeriod = new Map();
-    for (const [, period] of workshopPeriods) {
+    for (const [, period] of trendWsData) {
       const dateKey = period.date || period.periodKey;
       if (!dateKey) continue;
       const name = period.workshop;
@@ -945,16 +964,18 @@ class AggregationEngine {
       const output = period.quaQty !== undefined ? period.quaQty : (period.totalQuaQty || 0);
       outputByPeriod.set(dateKey, (outputByPeriod.get(dateKey) || 0) + output);
     }
-    const allPeriodKeys = this._generateAllPeriodKeys(dimension);
+    const allPeriodKeys = this._generateAllPeriodKeys(trendDim);
     const outputTrend = allPeriodKeys.map(pk => {
-      const label = pk.length === 10 ? `${pk.slice(5, 7)}/${pk.slice(8, 10)}`
-        : pk.includes('-W') ? pk.slice(2) : pk;
+      const label = dimension === 'year'
+        ? `${parseInt(pk.slice(5, 7), 10)}月`
+        : pk.length === 10 ? `${pk.slice(5, 7)}/${pk.slice(8, 10)}`
+          : pk.includes('-W') ? pk.slice(2) : pk;
       return { label, value: Math.round(outputByPeriod.get(pk) || 0) };
     });
 
     // 平均负载率趋势：各时段所有设备的聚合平均负载率
     const loadRateByPeriod = new Map();
-    for (const [, period] of aggregated.equipmentPeriods) {
+    for (const [, period] of trendEqData) {
       const pk = period.periodKey || period.date;
       if (!pk) continue;
       if (!loadRateByPeriod.has(pk)) {
@@ -965,8 +986,7 @@ class AggregationEngine {
       bucket.sumActualHours += actualHours;
       const eqName = period.machine || period.groupKey;
       if (eqName) bucket.equipSet.add(eqName);
-      // 日维度每个日期自身就是一个时段，额定工作日为1
-      if (dimension === 'day') {
+      if (dimension === 'day' || trendDim === 'month') {
         bucket.workingDays = 1;
       } else if (period.workingDays) {
         bucket.workingDays = period.workingDays;
@@ -979,8 +999,10 @@ class AggregationEngine {
       if (bucket && bucket.equipSet.size > 0 && bucket.workingDays > 0) {
         value = +((bucket.sumActualHours / (bucket.equipSet.size * bucket.workingDays * DAILY_MAX_HOURS)) * 100).toFixed(1);
       }
-      const label = pk.length === 10 ? `${pk.slice(5, 7)}/${pk.slice(8, 10)}`
-        : pk.includes('-W') ? pk.slice(2) : pk;
+      const label = dimension === 'year'
+        ? `${parseInt(pk.slice(5, 7), 10)}月`
+        : pk.length === 10 ? `${pk.slice(5, 7)}/${pk.slice(8, 10)}`
+          : pk.includes('-W') ? pk.slice(2) : pk;
       return { label, value };
     });
 
@@ -1221,13 +1243,32 @@ class AggregationEngine {
     equipmentList.sort((a, b) => a.name.localeCompare(b.name));
 
     // 趋势数组（全量历史，缺失时段填0）
+    const trendDim = aggregated.dimension === 'year' ? 'month' : aggregated.dimension;
+    const trendPeriodKeys = this._generateAllPeriodKeys(trendDim);
+    const trendWsData = aggregated.dimension === 'year' ? aggregated.monthlyWorkshopData : aggregated.workshopPeriods;
+
+    const trendPeriodMap = new Map();
+    for (const [, period] of trendWsData) {
+      if (period.workshop !== workshopName) continue;
+      const pk = period.periodKey || period.date;
+      const output = period.quaQty !== undefined ? period.quaQty : (period.totalQuaQty || 0);
+      const loadRate = this._pct(period.loadRate !== undefined ? period.loadRate : (period.dailyLoadRate || 0));
+      trendPeriodMap.set(pk, { periodKey: pk, totalOutput: Math.round(output), loadRate });
+    }
+    const trendFilled = trendPeriodKeys.map(pk => {
+      const existing = trendPeriodMap.get(pk);
+      return existing || { periodKey: pk, totalOutput: 0, loadRate: 0 };
+    });
+
     const trendLabel = (p) => {
-      const d = (p.periodKey || '').slice(0, 10);
+      const pk = p.periodKey || '';
+      if (aggregated.dimension === 'year') return `${parseInt(pk.slice(5, 7), 10)}月`;
+      const d = pk.slice(0, 10);
       return d.length === 10 ? `${d.slice(5, 7)}/${d.slice(8, 10)}`
-        : d.includes('-W') ? d.slice(2) : (p.periodKey || '');
+        : pk.includes('-W') ? pk.slice(2) : pk;
     };
-    const outputTrend = filledPeriods.map((p) => ({ label: trendLabel(p), value: p.totalOutput }));
-    const loadRateTrend = filledPeriods.map((p) => ({ label: trendLabel(p), value: p.loadRate }));
+    const outputTrend = trendFilled.map((p) => ({ label: trendLabel(p), value: p.totalOutput }));
+    const loadRateTrend = trendFilled.map((p) => ({ label: trendLabel(p), value: p.loadRate }));
 
     return {
       name: workshopName,
@@ -1288,9 +1329,33 @@ class AggregationEngine {
       }
     }
 
-    // 转为排序数组
-    const mergedPeriods = Array.from(mergedMap.values()).sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-    const trendPeriods = mergedPeriods.map((m) => ({
+    // 填充缺失时段
+    const trendDim = aggregated.dimension === 'year' ? 'month' : aggregated.dimension;
+    const trendEqSrc = aggregated.dimension === 'year' ? aggregated.monthlyEquipmentData : aggregated.equipmentPeriods;
+
+    // 从趋势数据源过滤本设备记录
+    const trendPeriodsMap = new Map();
+    for (const [, period] of trendEqSrc) {
+      const eqName = period.machine || period.groupKey;
+      if (eqName !== equipmentName) continue;
+      const pk = period.periodKey || period.date;
+      const quaQty = period.quaQty !== undefined ? period.quaQty : (period.totalQuaQty || 0);
+      const aimProd = period.aimProd !== undefined ? period.aimProd : (period.totalAimProd || 0);
+      if (!trendPeriodsMap.has(pk)) {
+        trendPeriodsMap.set(pk, { totalOutput: 0, totalAimProd: 0, maxLoadRate: 0, oeeWeightedSum: 0, oeeWeightDenom: 0 });
+      }
+      const m = trendPeriodsMap.get(pk);
+      m.totalOutput += quaQty;
+      m.totalAimProd += aimProd;
+      m.maxLoadRate = Math.max(m.maxLoadRate, period.loadRate !== undefined ? period.loadRate : (period.dailyLoadRate || 0));
+      if ((period.oee || 0) > 0 && quaQty > 0) {
+        m.oeeWeightedSum += period.oee * quaQty;
+        m.oeeWeightDenom += quaQty;
+      }
+    }
+
+    const trendPeriods = Array.from(trendPeriodsMap.values()).sort((a, b) => a.periodKey.localeCompare(b.periodKey));
+    const trendList = trendPeriods.map((m) => ({
       periodKey: m.periodKey,
       loadRate: this._pct(m.maxLoadRate),
       outputRate: m.totalAimProd > 0 ? this._pct(m.totalOutput / m.totalAimProd) : 0,
@@ -1298,9 +1363,8 @@ class AggregationEngine {
       oee: m.oeeWeightDenom > 0 ? +(m.oeeWeightedSum / m.oeeWeightDenom).toFixed(1) : 0,
     }));
 
-    // 填充缺失时段
-    const trendMap = new Map(trendPeriods.map(p => [p.periodKey, p]));
-    const allPeriodKeys = this._generateAllPeriodKeys(aggregated.dimension);
+    const trendMap = new Map(trendList.map(p => [p.periodKey, p]));
+    const allPeriodKeys = this._generateAllPeriodKeys(trendDim);
     const filledTrends = allPeriodKeys.map(pk => {
       const existing = trendMap.get(pk);
       return existing || {
@@ -1322,9 +1386,11 @@ class AggregationEngine {
     const equipmentInfo = getEquipmentByName(equipmentName);
 
     const trendLabel = (p) => {
-      const d = (p.periodKey || '').slice(0, 10);
+      const pk = p.periodKey || '';
+      if (aggregated.dimension === 'year') return `${parseInt(pk.slice(5, 7), 10)}月`;
+      const d = pk.slice(0, 10);
       return d.length === 10 ? `${d.slice(5, 7)}/${d.slice(8, 10)}`
-        : d.includes('-W') ? d.slice(2) : (p.periodKey || '');
+        : pk.includes('-W') ? pk.slice(2) : pk;
     };
 
     return {
