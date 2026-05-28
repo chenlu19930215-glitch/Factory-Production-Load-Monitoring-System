@@ -33,7 +33,7 @@ const statusInfo = computed(() => (status) => {
             <th>设备名称</th>
             <th>产量(条)</th>
             <th>产出率</th>
-            <th>负载率</th>
+            <th>负荷率</th>
             <th>状态</th>
             <th></th>
           </tr>

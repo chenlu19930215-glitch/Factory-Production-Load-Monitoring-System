@@ -112,7 +112,7 @@ class KingdeeClient {
       FilterString: filterString,
       Limit: limit,
       StartRow: offset,
-      TopRowCount: 5000,
+      TopRowCount: 20000,
       OrderString: orderString,
       SubSystemId: '',
     };
@@ -130,7 +130,7 @@ class KingdeeClient {
   async executeBillQueryAll(formId, query = {}) {
     const { fieldKeys = [], filter = '', orderString = '' } = query;
     const pageSize = 200;
-    const maxPages = 50;
+    const maxPages = 100;
     const allRows = [];
 
     for (let page = 0; page < maxPages; page++) {

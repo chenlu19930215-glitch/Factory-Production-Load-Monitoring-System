@@ -3,7 +3,7 @@ import { getToken, removeToken } from '../utils/auth.js'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '',
-  timeout: 10000,
+  timeout: 60000,
 })
 
 // 请求拦截器：自动附带 JWT token
@@ -27,23 +27,31 @@ api.interceptors.response.use(
   }
 )
 
-export async function fetchOverview(dimension = 'day') {
-  const { data: resp } = await api.get('/api/monitor/overview', { params: { dimension } })
+export async function fetchOverview(dimension = 'day', year) {
+  const params = { dimension }
+  if (year) params.year = year
+  const { data: resp } = await api.get('/api/monitor/overview', { params })
   return resp.data || resp
 }
 
-export async function fetchWorkshops(dimension = 'day') {
-  const { data: resp } = await api.get('/api/monitor/workshops', { params: { dimension } })
+export async function fetchWorkshops(dimension = 'day', year) {
+  const params = { dimension }
+  if (year) params.year = year
+  const { data: resp } = await api.get('/api/monitor/workshops', { params })
   return resp.data || resp
 }
 
-export async function fetchWorkshopDetail(name, dimension = 'day') {
-  const { data: resp } = await api.get(`/api/monitor/workshop/${encodeURIComponent(name)}`, { params: { dimension } })
+export async function fetchWorkshopDetail(name, dimension = 'day', year) {
+  const params = { dimension }
+  if (year) params.year = year
+  const { data: resp } = await api.get(`/api/monitor/workshop/${encodeURIComponent(name)}`, { params })
   return resp.data || resp
 }
 
-export async function fetchEquipmentDetail(name, dimension = 'day') {
-  const { data: resp } = await api.get(`/api/monitor/equipment/${encodeURIComponent(name)}`, { params: { dimension } })
+export async function fetchEquipmentDetail(name, dimension = 'day', year) {
+  const params = { dimension }
+  if (year) params.year = year
+  const { data: resp } = await api.get(`/api/monitor/equipment/${encodeURIComponent(name)}`, { params })
   return resp.data || resp
 }
 

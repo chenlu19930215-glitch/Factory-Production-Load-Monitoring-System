@@ -18,6 +18,8 @@ const dimensions = [
 ]
 
 const currentDimension = ref(route.query.dimension || 'day')
+const currentYear = ref(parseInt(route.query.year) || new Date().getFullYear())
+const availableYears = [2025, 2026]
 const loading = ref(true)
 const detailData = ref(null)
 
@@ -25,26 +27,36 @@ const workshopName = computed(() => route.params.name)
 
 async function loadData() {
   loading.value = true
-  detailData.value = await fetchWorkshopDetail(workshopName.value, currentDimension.value)
+  try {
+    detailData.value = await fetchWorkshopDetail(workshopName.value, currentDimension.value, currentYear.value)
+  } catch (e) {
+    console.error('[workshop] 加载失败:', e)
+  }
   loading.value = false
 }
 
 function onDimensionChange(dim) {
   currentDimension.value = dim
-  router.replace({ query: { dimension: dim } })
+  router.replace({ query: { ...route.query, dimension: dim } })
+}
+
+function onYearChange(year) {
+  currentYear.value = year
+  router.replace({ query: { ...route.query, year } })
 }
 
 function onEquipmentSelect(equipment) {
   router.push({
     name: 'EquipmentDetail',
     params: { name: equipment.name },
-    query: { workshop: workshopName.value, dimension: currentDimension.value },
+    query: { workshop: workshopName.value, dimension: currentDimension.value, year: currentYear.value },
   })
 }
 
 onMounted(loadData)
 
 watch(currentDimension, loadData)
+watch(currentYear, loadData)
 watch(
   () => route.params.name,
   () => {
@@ -58,15 +70,20 @@ watch(
     <!-- 顶部标题和维度切换 -->
     <div class="detail-header">
       <h2 class="page-title">{{ workshopName }}</h2>
-      <div class="dimension-switcher">
-        <button
-          v-for="dim in dimensions"
-          :key="dim.value"
-          :class="['dim-btn', { active: currentDimension === dim.value }]"
-          @click="onDimensionChange(dim.value)"
-        >
-          {{ dim.label }}
-        </button>
+      <div class="header-controls">
+        <select class="year-select" :value="currentYear" @change="onYearChange(Number($event.target.value))">
+          <option v-for="y in availableYears" :key="y" :value="y">{{ y }} 年</option>
+        </select>
+        <div class="dimension-switcher">
+          <button
+            v-for="dim in dimensions"
+            :key="dim.value"
+            :class="['dim-btn', { active: currentDimension === dim.value }]"
+            @click="onDimensionChange(dim.value)"
+          >
+            {{ dim.label }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -91,7 +108,7 @@ watch(
         :color="(detailData?.outputRate ?? 0) >= 85 ? '#52c41a' : (detailData?.outputRate ?? 0) >= 70 ? '#faad14' : '#ff4d4f'"
       />
       <MetricCard
-        title="负载率"
+        title="负荷率"
         :value="detailData?.loadRate ?? '--'"
         unit="%"
         color="#faad14"
@@ -111,7 +128,7 @@ watch(
       <div class="chart-col">
         <TrendLine
           :data="detailData?.loadRateTrend || []"
-          title="负载率趋势"
+          title="负荷率趋势"
           :height="300"
           line-color="#faad14"
         />
@@ -147,6 +164,27 @@ watch(
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.year-select {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color, #E2E8F0);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  cursor: pointer;
+  outline: none;
+}
+
+.year-select:focus {
+  border-color: var(--primary, #3B82F6);
 }
 
 .dimension-switcher {

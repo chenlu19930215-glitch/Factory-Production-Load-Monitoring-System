@@ -57,14 +57,22 @@ function setCache(key, data) {
 // ====== 请求处理中间件 ======
 
 /**
- * 校验 dimension 参数
+ * 校验 dimension 参数并解析 year
  */
-function parseDimension(req) {
+function parseDimensionAndYear(req) {
   const dim = (req.query.dimension || 'day').toLowerCase();
   if (!['day', 'week', 'month', 'year'].includes(dim)) {
     return { valid: false, error: 'dimension 必须是 day、week、month 或 year' };
   }
-  return { valid: true, dimension: dim };
+  const yearStr = req.query.year;
+  let year;
+  if (yearStr) {
+    year = parseInt(yearStr, 10);
+    if (isNaN(year) || year < 2025 || year > 2026) {
+      return { valid: false, error: 'year 必须是 2025 或 2026' };
+    }
+  }
+  return { valid: true, dimension: dim, year };
 }
 
 /**
@@ -91,17 +99,17 @@ function fail(res, status, msg) {
  *   dimension - day (默认) | week | month
  */
 router.get('/overview', async (req, res) => {
-  const dimResult = parseDimension(req);
+  const dimResult = parseDimensionAndYear(req);
   if (!dimResult.valid) return fail(res, 400, dimResult.error);
-  const { dimension } = dimResult;
+  const { dimension, year } = dimResult;
 
-  const cacheKey = `overview_${dimension}`;
+  const cacheKey = `overview_${dimension}_${year || ''}`;
   const cached = getCached(cacheKey);
   if (cached) return success(res, cached);
 
   try {
     const eng = getEngine();
-    const data = await eng.getOverview(dimension);
+    const data = await eng.getOverview(dimension, year);
     setCache(cacheKey, data);
     return success(res, data);
   } catch (err) {
@@ -120,20 +128,21 @@ router.get('/overview', async (req, res) => {
  *   dimension - day (默认) | week | month
  */
 router.get('/workshops', async (req, res) => {
-  const dimResult = parseDimension(req);
+  const dimResult = parseDimensionAndYear(req);
   if (!dimResult.valid) return fail(res, 400, dimResult.error);
-  const { dimension } = dimResult;
+  const { dimension, year } = dimResult;
 
-  const cacheKey = `workshops_${dimension}`;
+  const cacheKey = `workshops_${dimension}_${year || ''}`;
   const cached = getCached(cacheKey);
   if (cached) return success(res, cached);
 
   try {
     const eng = getEngine();
-    const workshops = await eng.getWorkshops(dimension);
+    const workshops = await eng.getWorkshops(dimension, year);
     setCache(cacheKey, workshops);
     return success(res, {
       dimension,
+      year,
       total: workshops.length,
       workshops,
     });
@@ -155,20 +164,20 @@ router.get('/workshops', async (req, res) => {
  *   dimension - day (默认) | week | month
  */
 router.get('/workshop/:id', async (req, res) => {
-  const dimResult = parseDimension(req);
+  const dimResult = parseDimensionAndYear(req);
   if (!dimResult.valid) return fail(res, 400, dimResult.error);
-  const { dimension } = dimResult;
+  const { dimension, year } = dimResult;
 
   const workshopName = decodeURIComponent(req.params.id);
   if (!workshopName) return fail(res, 400, '缺少车间名称');
 
-  const cacheKey = `workshop_${workshopName}_${dimension}`;
+  const cacheKey = `workshop_${workshopName}_${dimension}_${year || ''}`;
   const cached = getCached(cacheKey);
   if (cached) return success(res, cached);
 
   try {
     const eng = getEngine();
-    const data = await eng.getWorkshopDetail(workshopName, dimension);
+    const data = await eng.getWorkshopDetail(workshopName, dimension, year);
     setCache(cacheKey, data);
     return success(res, data);
   } catch (err) {
@@ -189,20 +198,20 @@ router.get('/workshop/:id', async (req, res) => {
  *   dimension - day (默认) | week | month
  */
 router.get('/equipment/:name', async (req, res) => {
-  const dimResult = parseDimension(req);
+  const dimResult = parseDimensionAndYear(req);
   if (!dimResult.valid) return fail(res, 400, dimResult.error);
-  const { dimension } = dimResult;
+  const { dimension, year } = dimResult;
 
   const equipmentName = decodeURIComponent(req.params.name);
   if (!equipmentName) return fail(res, 400, '缺少设备名称');
 
-  const cacheKey = `equipment_${equipmentName}_${dimension}`;
+  const cacheKey = `equipment_${equipmentName}_${dimension}_${year || ''}`;
   const cached = getCached(cacheKey);
   if (cached) return success(res, cached);
 
   try {
     const eng = getEngine();
-    const data = await eng.getEquipmentDetail(equipmentName, dimension);
+    const data = await eng.getEquipmentDetail(equipmentName, dimension, year);
     setCache(cacheKey, data);
     return success(res, data);
   } catch (err) {

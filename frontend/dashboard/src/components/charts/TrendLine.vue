@@ -8,6 +8,7 @@ const props = defineProps({
   height: { type: Number, default: 300 },
   targetLine: { type: Number, default: null },
   lineColor: { type: String, default: '#1890ff' },
+  multiSeries: { type: Array, default: null },
 })
 
 const chartRef = ref(null)
@@ -22,35 +23,59 @@ function initChart() {
 
 function renderChart() {
   if (!chartInstance) return
-  const series = [
-    {
-      type: 'line',
-      data: props.data.map((d) => d.value),
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 6,
-      lineStyle: { color: props.lineColor, width: 2 },
-      itemStyle: { color: props.lineColor },
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: props.lineColor + '33' },
-          { offset: 1, color: props.lineColor + '05' },
-        ]),
-      },
-    },
-  ]
+
+  const isMulti = props.multiSeries && props.multiSeries.length > 0
+
+  const labels = isMulti
+    ? (props.multiSeries[0].data || []).map((d) => d.label)
+    : props.data.map((d) => d.label)
+
+  const series = isMulti
+    ? props.multiSeries.map((s) => ({
+        type: 'line',
+        name: s.name,
+        data: (s.data || []).map((d) => d.value),
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { color: s.color, width: 2 },
+        itemStyle: { color: s.color },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: s.color + '22' },
+            { offset: 1, color: s.color + '05' },
+          ]),
+        },
+      }))
+    : [
+        {
+          type: 'line',
+          data: props.data.map((d) => d.value),
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 6,
+          lineStyle: { color: props.lineColor, width: 2 },
+          itemStyle: { color: props.lineColor },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: props.lineColor + '33' },
+              { offset: 1, color: props.lineColor + '05' },
+            ]),
+          },
+        },
+      ]
 
   if (props.targetLine !== null) {
     series.push({
       type: 'line',
-      data: props.data.map(() => props.targetLine),
+      data: labels.map(() => props.targetLine),
       lineStyle: { color: '#ff4d4f', width: 2, type: 'dashed' },
       symbol: 'none',
       name: '目标线',
     })
   }
 
-  chartInstance.setOption({
+  const option = {
     title: props.title
       ? { text: props.title, textStyle: { fontSize: 14, fontWeight: 600, color: '#1E293B' }, left: 'center', top: 8 }
       : undefined,
@@ -61,19 +86,20 @@ function renderChart() {
       borderWidth: 1,
       textStyle: { fontSize: 12, color: '#1E293B' },
       formatter: (params) => {
-        const idx = params[0].dataIndex
-        const item = props.data[idx]
-        let html = `${item.label}<br/>`
+        if (!params || params.length === 0) return ''
+        const item = isMulti ? (props.multiSeries[0].data || [])[params[0].dataIndex] : props.data[params[0].dataIndex]
+        let html = `${item ? item.label : ''}<br/>`
         params.forEach((p) => {
-          html += `${p.marker} ${p.seriesName || ''} ${p.value}`
+          html += `${p.marker} ${p.seriesName || ''} ${p.value}<br/>`
         })
         return html
       },
     },
-    grid: { left: 48, right: 16, top: props.title ? 44 : 20, bottom: 28 },
+    legend: isMulti ? { data: props.multiSeries.map((s) => s.name), top: 34, textStyle: { fontSize: 11, color: '#64748B' } } : undefined,
+    grid: { left: 48, right: 16, top: props.title ? (isMulti ? 56 : 44) : 20, bottom: 28 },
     xAxis: {
       type: 'category',
-      data: props.data.map((d) => d.label),
+      data: labels,
       axisLine: { lineStyle: { color: '#E2E8F0' } },
       axisLabel: { color: '#94A3B8', fontSize: 11 },
       axisTick: { show: false },
@@ -84,7 +110,9 @@ function renderChart() {
       axisLabel: { color: '#94A3B8', fontSize: 11 },
     },
     series,
-  })
+  }
+
+  chartInstance.setOption(option)
 }
 
 function handleResize() {

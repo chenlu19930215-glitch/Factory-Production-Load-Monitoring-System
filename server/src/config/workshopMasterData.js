@@ -18,6 +18,19 @@ const WORKSHOPS = [
   'Y液体二车间',
 ];
 
+/** 车间面积（㎡） */
+const WORKSHOP_AREAS = {
+  'Y固体一1号车间': 245,
+  'Y固体一2号车间': 55,
+  'Y固体一3号车间': 110,
+  'Y固体一5号车间': 186,
+  'Y固体一6号车间': 154,
+  'Y固体一8号车间': 352,
+  'Y固体一分包间': 139,
+  'Y固体二车间': 431,
+  'Y液体二车间': 348,
+};
+
 /**
  * 设备类型枚举
  */
@@ -83,6 +96,7 @@ function getDefaultEquipmentByWorkshop(workshop) {
 
 module.exports = {
   WORKSHOPS,
+  WORKSHOP_AREAS,
   EQUIPMENT_TYPES,
   EQUIPMENT_LIST,
   getEquipmentByName,

@@ -13,7 +13,7 @@ module.exports = {
     // 集成账号密码（LoginByAppSecret 方式通常留空）
     password: process.env.KD_PASSWORD || '',
     // 数据起始日期，仅同步此日期之后的单据
-    dataStartDate: process.env.DATA_START_DATE || '2026-01-01',
+    dataStartDate: process.env.DATA_START_DATE || '2025-01-01',
   },
 
   // 服务配置

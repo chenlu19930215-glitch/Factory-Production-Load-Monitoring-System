@@ -2,25 +2,25 @@ const TOKEN_KEY = 'factory_monitor_token'
 const USER_KEY = 'factory_monitor_user'
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
+  return sessionStorage.getItem(TOKEN_KEY)
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
+  sessionStorage.setItem(TOKEN_KEY, token)
 }
 
 export function removeToken() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(USER_KEY)
+  sessionStorage.removeItem(TOKEN_KEY)
+  sessionStorage.removeItem(USER_KEY)
 }
 
 export function getUser() {
-  const raw = localStorage.getItem(USER_KEY)
+  const raw = sessionStorage.getItem(USER_KEY)
   return raw ? JSON.parse(raw) : null
 }
 
 export function setUser(user) {
-  localStorage.setItem(USER_KEY, JSON.stringify(user))
+  sessionStorage.setItem(USER_KEY, JSON.stringify(user))
 }
 
 export function isLoggedIn() {

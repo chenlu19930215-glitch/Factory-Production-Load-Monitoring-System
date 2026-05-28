@@ -1,10 +1,12 @@
 <script setup>
-import { ref, onMounted, watch, onBeforeUnmount, computed, nextTick } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { fetchEquipmentDetail } from '../api/monitor.js'
 import MetricCard from '../components/widgets/MetricCard.vue'
 import TrendLine from '../components/charts/TrendLine.vue'
 import BarChart from '../components/charts/BarChart.vue'
+
+const chartColors = ['#1890ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16']
 
 const router = useRouter()
 const route = useRoute()
@@ -17,6 +19,8 @@ const dimensions = [
 ]
 
 const currentDimension = ref(route.query.dimension || 'day')
+const currentYear = ref(parseInt(route.query.year) || new Date().getFullYear())
+const availableYears = [2025, 2026]
 const loading = ref(true)
 const detailData = ref(null)
 
@@ -24,7 +28,11 @@ const equipmentName = computed(() => route.params.name)
 
 async function loadData() {
   loading.value = true
-  detailData.value = await fetchEquipmentDetail(equipmentName.value, currentDimension.value)
+  try {
+    detailData.value = await fetchEquipmentDetail(equipmentName.value, currentDimension.value, currentYear.value)
+  } catch (e) {
+    console.error('[equipment] 加载失败:', e)
+  }
   loading.value = false
 }
 
@@ -33,9 +41,40 @@ function onDimensionChange(dim) {
   router.replace({ query: { ...route.query, dimension: dim } })
 }
 
+function onYearChange(year) {
+  currentYear.value = year
+  router.replace({ query: { ...route.query, year } })
+}
+
+// 产量为0的车间不展示
+const visibleWorkshopBreakdown = computed(() => {
+  return (detailData.value?.workshopBreakdown || []).filter(ws => ws.totalOutput > 0)
+})
+
+// 分车间多系列趋势（仅在有多个车间时启用）
+const wsOutputTrendSeries = computed(() => {
+  const bd = visibleWorkshopBreakdown.value
+  if (!bd || bd.length < 2) return null
+  return bd.map((ws, i) => ({
+    name: ws.workshop,
+    data: ws.outputTrend || [],
+    color: chartColors[i % chartColors.length],
+  }))
+})
+const wsLoadRateTrendSeries = computed(() => {
+  const bd = visibleWorkshopBreakdown.value
+  if (!bd || bd.length < 2) return null
+  return bd.map((ws, i) => ({
+    name: ws.workshop,
+    data: ws.loadRateTrend || [],
+    color: chartColors[i % chartColors.length],
+  }))
+})
+
 onMounted(loadData)
 
 watch(currentDimension, loadData)
+watch(currentYear, loadData)
 watch(
   () => route.params.name,
   () => {
@@ -49,15 +88,20 @@ watch(
     <!-- 顶部标题和维度切换 -->
     <div class="detail-header">
       <h2 class="page-title">{{ equipmentName }}</h2>
-      <div class="dimension-switcher">
-        <button
-          v-for="dim in dimensions"
-          :key="dim.value"
-          :class="['dim-btn', { active: currentDimension === dim.value }]"
-          @click="onDimensionChange(dim.value)"
-        >
-          {{ dim.label }}
-        </button>
+      <div class="header-controls">
+        <select class="year-select" :value="currentYear" @change="onYearChange(Number($event.target.value))">
+          <option v-for="y in availableYears" :key="y" :value="y">{{ y }} 年</option>
+        </select>
+        <div class="dimension-switcher">
+          <button
+            v-for="dim in dimensions"
+            :key="dim.value"
+            :class="['dim-btn', { active: currentDimension === dim.value }]"
+            @click="onDimensionChange(dim.value)"
+          >
+            {{ dim.label }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -70,7 +114,7 @@ watch(
         color="#1890ff"
       />
       <MetricCard
-        title="设备负载率"
+        title="设备负荷率"
         :value="detailData?.loadRate ?? '--'"
         unit="%"
         :color="(detailData?.loadRate ?? 0) >= 85 ? '#52c41a' : (detailData?.loadRate ?? 0) >= 70 ? '#faad14' : '#ff4d4f'"
@@ -90,11 +134,52 @@ watch(
     </div>
 
     <!-- 图表区域 -->
+
+    <!-- 分车间明细（仅在有多个车间记录时展示） -->
+    <div v-if="visibleWorkshopBreakdown.length > 1" class="workshop-section">
+      <h3 class="section-title">车间分布</h3>
+      <div class="ws-summary-grid">
+        <div v-for="ws in visibleWorkshopBreakdown" :key="ws.workshop" class="ws-card">
+          <div class="ws-card-name">{{ ws.workshop }}</div>
+          <div class="ws-card-metrics">
+            <div class="ws-metric">
+              <span class="ws-metric-label">产量</span>
+              <span class="ws-metric-value">{{ ws.totalOutput?.toLocaleString() }} 条</span>
+            </div>
+            <div class="ws-metric">
+              <span class="ws-metric-label">产出率</span>
+              <span class="ws-metric-value">{{ ws.outputRate }}%</span>
+            </div>
+            <div class="ws-metric">
+              <span class="ws-metric-label">负荷率</span>
+              <span class="ws-metric-value">{{ ws.loadRate }}%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-col">
+          <TrendLine
+            :multi-series="wsOutputTrendSeries"
+            title="各车间产量趋势"
+            :height="280"
+          />
+        </div>
+        <div class="chart-col">
+          <TrendLine
+            :multi-series="wsLoadRateTrendSeries"
+            title="各车间负荷率趋势"
+            :height="280"
+          />
+        </div>
+      </div>
+    </div>
+
     <div class="chart-row">
       <div class="chart-col">
         <TrendLine
           :data="detailData?.loadRateTrend || []"
-          title="设备负载率趋势"
+          title="设备负荷率趋势"
           :height="300"
           line-color="#faad14"
         />
@@ -149,6 +234,27 @@ watch(
   color: var(--text-primary);
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.year-select {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color, #E2E8F0);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  cursor: pointer;
+  outline: none;
+}
+
+.year-select:focus {
+  border-color: var(--primary, #3B82F6);
+}
+
 .dimension-switcher {
   display: flex;
   gap: 4px;
@@ -196,6 +302,64 @@ watch(
 
 .full-chart {
   width: 100%;
+}
+
+.workshop-section {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+}
+
+.ws-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ws-card {
+  border: 1px solid var(--border-color, #E2E8F0);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  background: var(--bg-body, #F8FAFC);
+}
+
+.ws-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.ws-card-metrics {
+  display: flex;
+  gap: 16px;
+}
+
+.ws-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ws-metric-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ws-metric-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 1024px) {

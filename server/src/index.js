@@ -42,14 +42,24 @@ app.use('/api/monitor', authMiddleware, monitorRouter);
 const engine = monitorRouter.initEngine();
 console.log('[server] 聚合引擎已初始化，正在预热缓存...');
 
-// 后台预热三个维度的缓存，不阻塞服务启动
-['day', 'week', 'month', 'year'].forEach((dim) => {
-  engine.fetchAndAggregate(dim).then(() => {
-    console.log(`[server] 缓存预热完成 dimension=${dim}`);
-  }).catch((err) => {
-    console.warn(`[server] 缓存预热失败 dimension=${dim}: ${err.message}`);
-  });
-});
+// 串行预热缓存（所有年份 + 所有维度，避免并发金蝶请求导致超时）
+const years = [2025, 2026];
+const total = years.length * 4;
+(async () => {
+  let done = 0;
+  for (const year of years) {
+    for (const dim of ['day', 'week', 'month', 'year']) {
+      done++;
+      try {
+        await engine.fetchAndAggregate(dim, year);
+        console.log(`[server] 缓存预热 ${done}/${total} dimension=${dim} year=${year}`);
+      } catch (err) {
+        console.warn(`[server] 缓存预热失败 ${done}/${total} dimension=${dim} year=${year}: ${err.message}`);
+      }
+    }
+  }
+  console.log('[server] 全量缓存预热完成');
+})();
 
 // ==== 根路由 ====
 app.get('/', (req, res) => {

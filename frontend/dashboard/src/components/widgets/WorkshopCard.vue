@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 const props = defineProps({
   name: { type: String, default: '' },
+  area: { type: Number, default: null },
   outputRate: { type: Number, default: 0 },
   totalOutput: { type: Number, default: 0 },
   outputUnit: { type: String, default: '条' },
@@ -38,7 +39,10 @@ const outputRateColor = computed(() => {
     <div class="workshop-border" :style="{ background: borderColor }"></div>
     <div class="workshop-body">
       <div class="workshop-header">
-        <span class="workshop-name">{{ name }}</span>
+        <div class="workshop-title-group">
+          <span class="workshop-name">{{ name }}</span>
+          <span v-if="area" class="workshop-area">{{ area }}㎡</span>
+        </div>
         <span class="workshop-badge" :style="{ color: statusConfig.color, background: statusConfig.bg }">
           <svg width="6" height="6" viewBox="0 0 6 6" fill="currentColor">
             <circle cx="3" cy="3" r="3"/>
@@ -61,7 +65,7 @@ const outputRateColor = computed(() => {
           <span class="metric-unit">{{ outputUnit }}</span>
         </div>
         <div class="metric-item">
-          <span class="metric-label">负载率</span>
+          <span class="metric-label">负荷率</span>
           <span class="metric-value">{{ loadRate }}%</span>
           <div class="progress-track">
             <div class="progress-fill" :style="{ width: loadRateBarWidth + '%', background: '#3B82F6' }"></div>
@@ -112,6 +116,18 @@ const outputRateColor = computed(() => {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.workshop-title-group {
+  display: flex;
+  align-items: center;
+}
+
+.workshop-area {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f97316;
+  margin-left: 8px;
 }
 
 .workshop-badge {
