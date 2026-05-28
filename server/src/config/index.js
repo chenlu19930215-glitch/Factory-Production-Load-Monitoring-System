@@ -25,4 +25,16 @@ module.exports = {
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '300', 10), // 默认 5 分钟
   },
+
+  // SQLite 持久化配置
+  sqlite: {
+    enabled: process.env.SQLITE_ENABLED !== 'false', // 默认开启
+    path: process.env.SQLITE_PATH || '',
+  },
+
+  // 同步配置（秒）
+  sync: {
+    interval: parseInt(process.env.SYNC_INTERVAL || '300', 10), // 增量同步间隔，默认 5 分钟
+    fullResyncHours: parseInt(process.env.FULL_RESYNC_HOURS || '168', 10), // 全量覆盖周期，默认 7 天
+  },
 };

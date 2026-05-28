@@ -40,25 +40,73 @@ app.use('/api/monitor', authMiddleware, monitorRouter);
 
 // 初始化聚合引擎并预热缓存
 const engine = monitorRouter.initEngine();
-console.log('[server] 聚合引擎已初始化，正在预热缓存...');
 
-// 串行预热缓存（所有年份 + 所有维度，避免并发金蝶请求导致超时）
-const years = [2025, 2026];
-const total = years.length * 4;
+// 异步预热（不阻塞 listen）
 (async () => {
-  let done = 0;
-  for (const year of years) {
-    for (const dim of ['day', 'week', 'month', 'year']) {
-      done++;
+  if (engine.db) {
+    // 有 SQLite：本地毫秒级预热 + 后台同步
+    const count = engine.db.getRecordCount();
+    console.log(`[server] SQLite 已就绪, ${count} 条记录`);
+
+    if (count > 0) {
+      // 后台触发同步（不 await，不阻塞预热）
+      engine.scheduleSync();
+
+      // 本地并行预热（毫秒级）
+      const years = [2025, 2026];
+      const dims = ['day', 'week', 'month', 'year'];
+      let done = 0;
+      const total = years.length * dims.length;
+      const tasks = years.flatMap(y => dims.map(d =>
+        engine.fetchAndAggregate(d, y).then(r => {
+          done++;
+          console.log(`[server] 缓存预热 ${done}/${total} dimension=${d} year=${y}`);
+        }).catch(err => {
+          done++;
+          console.warn(`[server] 缓存预热失败 ${done}/${total} dimension=${d} year=${y}: ${err.message}`);
+        })
+      ));
+      await Promise.all(tasks);
+      console.log('[server] 全量缓存预热完成 (SQLite)');
+    } else {
+      // SQLite 为空，首次全量同步
+      console.log('[server] SQLite 为空，开始首次同步...');
       try {
-        await engine.fetchAndAggregate(dim, year);
-        console.log(`[server] 缓存预热 ${done}/${total} dimension=${dim} year=${year}`);
+        await engine._syncFromKingdee();
       } catch (err) {
-        console.warn(`[server] 缓存预热失败 ${done}/${total} dimension=${dim} year=${year}: ${err.message}`);
+        console.warn(`[server] 首次同步失败: ${err.message}`);
+      }
+      // 预热
+      for (const year of [2025, 2026]) {
+        for (const dim of ['day', 'week', 'month', 'year']) {
+          try {
+            await engine.fetchAndAggregate(dim, year);
+          } catch (err) {
+            console.warn(`[server] 缓存预热失败 dimension=${dim} year=${year}: ${err.message}`);
+          }
+        }
+      }
+      console.log('[server] 首次同步 + 预热完成');
+    }
+  } else {
+    // 无 SQLite：串行金蝶预热（原流程）
+    console.log('[server] 聚合引擎已初始化，正在预热缓存...');
+    const years = [2025, 2026];
+    const total = years.length * 4;
+    let done = 0;
+    for (const year of years) {
+      for (const dim of ['day', 'week', 'month', 'year']) {
+        done++;
+        try {
+          await engine.fetchAndAggregate(dim, year);
+          console.log(`[server] 缓存预热 ${done}/${total} dimension=${dim} year=${year}`);
+        } catch (err) {
+          console.warn(`[server] 缓存预热失败 ${done}/${total} dimension=${dim} year=${year}: ${err.message}`);
+        }
       }
     }
+    console.log('[server] 全量缓存预热完成');
   }
-  console.log('[server] 全量缓存预热完成');
 })();
 
 // ==== 根路由 ====
@@ -98,10 +146,16 @@ app.listen(PORT, () => {
 // 优雅退出
 process.on('SIGINT', () => {
   console.log('[server] 收到 SIGINT，正在关闭...');
+  if (engine && engine.db) {
+    engine.db.close();
+  }
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('[server] 收到 SIGTERM，正在关闭...');
+  if (engine && engine.db) {
+    engine.db.close();
+  }
   process.exit(0);
 });

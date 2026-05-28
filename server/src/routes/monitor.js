@@ -244,12 +244,25 @@ router.get('/health', async (req, res) => {
   const configured = client.isConfigured();
   const loggedIn = client.isLoggedIn();
 
+  // SQLite 状态
+  let sqliteStatus = 'not_configured';
+  let recordCount = 0;
+  let lastSyncTime = null;
+  if (eng.db) {
+    sqliteStatus = 'connected';
+    recordCount = eng.db.getRecordCount();
+    lastSyncTime = eng.db.getMeta('lastSyncTime');
+  }
+
   return success(res, {
     status: configured && loggedIn ? 'connected' : configured ? 'not_logged_in' : 'not_configured',
     configured,
     loggedIn,
     cacheTTL: `${CACHE_TTL_MS / 1000}s`,
     engineCacheSize: eng._cache ? eng._cache.size : 0,
+    sqlite: sqliteStatus,
+    recordCount,
+    lastSyncTime,
   });
 });
 

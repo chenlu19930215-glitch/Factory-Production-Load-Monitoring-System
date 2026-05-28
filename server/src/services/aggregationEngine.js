@@ -11,6 +11,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const config = require('../config');
 const { isWorkingDay, countWorkingDays, countWorkingDaysInMonth } = require('../config/holiday');
 const { WORKSHOPS, WORKSHOP_AREAS, EQUIPMENT_TYPES, EQUIPMENT_LIST, getEquipmentByName } = require('../config/workshopMasterData');
@@ -179,6 +180,21 @@ class AggregationEngine {
     this._cache = new Map();
     this.CACHE_TTL_MS = (config.cache.ttl || 300) * 1000;
 
+    // SQLite 持久化（失败时静默降级）
+    this.db = null;
+    if (config.sqlite.enabled) {
+      try {
+        const Database = require('./database');
+        const dbPath = config.sqlite.path || path.resolve(__dirname, '../../data/sfc_records.db');
+        this.db = new Database(dbPath);
+        this.db.initialize();
+      } catch (err) {
+        console.warn(`[agg] SQLite 初始化失败，回退金蝶直连: ${err.message}`);
+      }
+    }
+    this.SYNC_INTERVAL_MS = (config.sync.interval || 300) * 1000;
+    this._syncTimer = null;
+
     // 启动时从文件缓存加载到内存
     this._loadAllFileCaches();
   }
@@ -187,7 +203,9 @@ class AggregationEngine {
 
   /**
    * 主入口：获取原始记录并聚合（带缓存）
-   * @param {string} dimension - 'day' | 'week' | 'month'
+   * - 有 SQLite：从本地读取，需要同步时后台触发
+   * - 无 SQLite：回退金蝶直连
+   * @param {string} dimension - 'day' | 'week' | 'month' | 'year'
    * @returns {Promise<object>}
    */
   async fetchAndAggregate(dimension = 'day', year) {
@@ -200,16 +218,28 @@ class AggregationEngine {
 
     console.log(`[agg] 开始获取数据 dimension=${dimension} year=${year}`);
 
-    // 1. 获取原始记录
-    let records = await this._fetchRecords();
+    let records;
 
-    // 2. 解析车间名称（BD_DEPARTMENT）
-    await this._resolveWorkshopNames(records);
+    if (this.db) {
+      // 有 SQLite：从本地读取
+      records = this._readFromStorage();
+      if (records.length === 0) {
+        // SQLite 为空，执行一次全量同步
+        records = await this._syncFromKingdee();
+      } else {
+        // 检查是否需要后台同步（不阻塞本次请求）
+        this._checkSyncDue();
+      }
+    } else {
+      // 无 SQLite：金蝶直连（旧流程）
+      records = await this._fetchRecords();
+      await this._resolveWorkshopNames(records);
+    }
 
-    // 3. 聚合计算
+    // 聚合计算
     const aggregated = this._aggregate(records, dimension, year);
 
-    // 4. 缓存
+    // 缓存
     this._cache.set(cacheKey, { data: aggregated, timestamp: Date.now() });
     this._saveToFileCache(dimension, year, aggregated);
     console.log(`[agg] 聚合完成 dimension=${dimension} year=${year} records=${records.length}`);
@@ -290,39 +320,305 @@ class AggregationEngine {
     // 班次映射与数值解析
     this._normalizeRecords(records);
 
-    // 去重：基于全部字段指纹（金蝶分页可能返回重复行）
-    const beforeDedup = records.length;
+    // 去重：基于全部字段指纹
+    records = this._deduplicate(records);
+
+    // 过滤工序说明
+    records = this._filterByOperation(records);
+
+    // 异常值过滤
+    records = this._filterOutliers(records);
+
+    console.log(`[agg] 有效记录数: ${records.length}`);
+    return records;
+  }
+
+  /**
+   * 基于 fields 指纹去重
+   */
+  _deduplicate(records) {
+    const before = records.length;
     const seen = new Set();
-    records = records.filter(r => {
+    const result = records.filter(r => {
       const fingerprint = JSON.stringify(r.fields);
       if (seen.has(fingerprint)) return false;
       seen.add(fingerprint);
       return true;
     });
-    if (beforeDedup - records.length > 0) {
-      console.log(`[agg] 去重: ${beforeDedup} → ${records.length} (移除 ${beforeDedup - records.length})`);
+    if (before - result.length > 0) {
+      console.log(`[agg] 去重: ${before} → ${result.length} (移除 ${before - result.length})`);
     }
+    return result;
+  }
 
-    // 过滤工序说明：仅保留固体灌装和液体灌装
-    const beforeFilter = records.length;
+  /**
+   * 仅保留固体灌装和液体灌装的记录
+   */
+  _filterByOperation(records) {
+    const before = records.length;
     const filtered = records.filter(r => {
       const operDescp = r.fields['F_FD_OperDescp'];
       return operDescp === '固体灌装' || operDescp === '液体灌装';
     });
-    console.log(`[agg] 工序过滤: ${beforeFilter} → ${filtered.length}`);
+    console.log(`[agg] 工序过滤: ${before} → ${filtered.length}`);
+    return filtered;
+  }
 
-    // 异常值过滤：移除 OEE > 1000% 的记录（数据录入错误，如粉体M机台4月18日OEE=103,137.5%）
-    const beforeAnomaly = filtered.length;
-    const cleaned = filtered.filter(r => {
+  /**
+   * 移除 OEE > 1000% 的异常记录
+   */
+  _filterOutliers(records) {
+    const before = records.length;
+    const cleaned = records.filter(r => {
       const oee = r.fields['F_YJY_OEE'];
       return typeof oee !== 'number' || oee <= 1000;
     });
-    if (beforeAnomaly - cleaned.length > 0) {
-      console.log(`[agg] 异常值过滤: ${beforeAnomaly} → ${cleaned.length} (移除 ${beforeAnomaly - cleaned.length})`);
+    if (before - cleaned.length > 0) {
+      console.log(`[agg] 异常值过滤: ${before} → ${cleaned.length} (移除 ${before - cleaned.length})`);
+    }
+    return cleaned;
+  }
+
+  // ===================== SQLite 存储与同步 =====================
+
+  /**
+   * 从 SQLite 读取已处理的记录
+   * @returns {Array}
+   */
+  _readFromStorage() {
+    if (!this.db) return [];
+    try {
+      const records = this.db.getAllRecords();
+      if (records.length > 0) {
+        console.log(`[agg] 从 SQLite 读取: ${records.length} 条`);
+      }
+      return records;
+    } catch (err) {
+      console.warn(`[agg] SQLite 读取失败: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * 计算记录的内容哈希（用于去重标识）
+   * @param {object} fields - 记录的 fields 对象
+   * @returns {string} MD5 hex
+   */
+  _computeContentHash(fields) {
+    const keys = Object.keys(fields).sort();
+    const ordered = {};
+    for (const k of keys) ordered[k] = fields[k];
+    return crypto.createHash('md5').update(JSON.stringify(ordered)).digest('hex');
+  }
+
+  /**
+   * 检查同步是否到期，触发后台同步
+   */
+  _checkSyncDue() {
+    if (!this.db) return;
+    const lastSync = this.db.getMeta('lastSyncTime');
+    if (!lastSync) return;
+    const elapsed = Date.now() - new Date(lastSync).getTime();
+    if (elapsed >= this.SYNC_INTERVAL_MS) {
+      console.log(`[agg] 同步到期 (距上次 ${Math.round(elapsed/1000)}s)，触发后台同步`);
+      this.scheduleSync();
+    }
+  }
+
+  /**
+   * 后台调度一次同步（不 await，不阻塞）
+   */
+  scheduleSync() {
+    if (!this.db) return;
+    this._syncFromKingdee().then((records) => {
+      if (records.length > 0) {
+        console.log(`[agg] 后台同步完成: ${records.length} 条`);
+        // 同步后清除内存缓存，下次请求会重新聚合
+        this._cache.clear();
+      }
+    }).catch((err) => {
+      console.warn(`[agg] 后台同步失败: ${err.message}`);
+    });
+  }
+
+  /**
+   * 从金蝶同步数据到 SQLite
+   * 首次为全量，后续探测 FModifyDate 决定增量或全量
+   */
+  async _syncFromKingdee() {
+    const lastSync = this.db ? this.db.getMeta('lastSyncTime') : null;
+
+    if (lastSync && this.db.getMeta('fmodifyDateSupported') !== 'false') {
+      // 尝试增量
+      try {
+        return await this._syncIncremental(lastSync);
+      } catch (err) {
+        console.warn(`[agg] 增量同步失败，回退全量: ${err.message}`);
+      }
     }
 
-    console.log(`[agg] 有效记录数: ${cleaned.length}`);
-    return cleaned;
+    return await this._syncFull();
+  }
+
+  /**
+   * 全量同步：从金蝶拉取所有记录，处理后写入 SQLite
+   */
+  async _syncFull() {
+    console.log('[agg] 开始全量同步...');
+    if (!this.client || !this.client.isConfigured()) {
+      console.warn('[agg] 金蝶客户端未配置，返回空数据');
+      return [];
+    }
+
+    // 探测 FModifyDate 是否可用
+    const fmdSupported = await this._probeFModifyDate();
+    if (this.db) {
+      this.db.setMeta('fmodifyDateSupported', fmdSupported ? 'true' : 'false');
+    }
+
+    const extendedKeys = [...FIELD_KEYS, DOT_FIELD];
+    if (fmdSupported) extendedKeys.push('FModifyDate');
+
+    const rawResult = await this.client.executeBillQueryAll('SFC_OperationReport', {
+      fieldKeys: extendedKeys,
+      filter: "FDOCUMENTSTATUS = 'C'",
+      orderString: 'FDate ASC',
+    });
+
+    if (!Array.isArray(rawResult) || rawResult.length === 0) {
+      console.warn('[agg] 金蝶返回空数据');
+      return [];
+    }
+
+    // 完整处理管道
+    let records = this._transformSfcRecords(rawResult, FIELD_KEYS);
+    this._applyMachineInline(rawResult, records);
+    this._normalizeRecords(records);
+    records = this._deduplicate(records);
+    records = this._filterByOperation(records);
+    records = this._filterOutliers(records);
+
+    // 解析车间名称
+    await this._resolveWorkshopNames(records);
+
+    // 提取 FModifyDate
+    if (fmdSupported) {
+      this._extractModifyDates(rawResult, records);
+    }
+
+    // 计算内容哈希
+    for (const r of records) {
+      r.content_hash = this._computeContentHash(r.fields);
+    }
+
+    // 写入 SQLite
+    if (this.db) {
+      this.db.replaceAllRecords(records);
+      this.db.setMeta('lastSyncTime', new Date().toISOString());
+    }
+
+    console.log(`[agg] 全量同步完成: ${records.length} 条`);
+    return records;
+  }
+
+  /**
+   * 增量同步：只拉取上次同步后修改的记录
+   */
+  async _syncIncremental(lastSync) {
+    const from = lastSync || new Date(0).toISOString();
+    console.log(`[agg] 开始增量同步 since=${from}`);
+
+    const extendedKeys = [...FIELD_KEYS, DOT_FIELD, 'FModifyDate'];
+    const filter = `FDOCUMENTSTATUS = 'C' AND FModifyDate >= '${from}'`;
+
+    const rawResult = await this.client.executeBillQueryAll('SFC_OperationReport', {
+      fieldKeys: extendedKeys,
+      filter,
+      orderString: 'FDate ASC',
+    });
+
+    if (!Array.isArray(rawResult) || rawResult.length === 0) {
+      console.log('[agg] 增量同步无新数据');
+      this.db.setMeta('lastSyncTime', new Date().toISOString());
+      return [];
+    }
+
+    // 处理管道
+    let records = this._transformSfcRecords(rawResult, FIELD_KEYS);
+    this._applyMachineInline(rawResult, records);
+    this._normalizeRecords(records);
+    records = this._deduplicate(records);
+    records = this._filterByOperation(records);
+    records = this._filterOutliers(records);
+    await this._resolveWorkshopNames(records);
+    this._extractModifyDates(rawResult, records);
+
+    for (const r of records) {
+      r.content_hash = this._computeContentHash(r.fields);
+    }
+
+    // 合并到 SQLite
+    if (this.db && records.length > 0) {
+      this.db.upsertRecords(records);
+      this.db.setMeta('lastSyncTime', new Date().toISOString());
+    }
+
+    console.log(`[agg] 增量同步完成: ${records.length} 条`);
+    return records;
+  }
+
+  /**
+   * 从 rawResult 中提取 FModifyDate 到 records
+   */
+  _extractModifyDates(rawResult, records) {
+    let dataStart = 0;
+    if (rawResult.length > 0 && Array.isArray(rawResult[0])) {
+      const hasHeader = rawResult[0].some(h => typeof h === 'string' && /^F[A-Z]/.test(h));
+      if (hasHeader) dataStart = 1;
+    }
+    // 索引：FIELD_KEYS.length (22) + DOT_FIELD (1) = 23
+    const mdIndex = FIELD_KEYS.length + 1;
+    for (let i = 0; i < records.length; i++) {
+      const row = rawResult[i + dataStart];
+      if (!row) continue;
+      const val = row[mdIndex];
+      records[i].fmodify_date = (val !== undefined && val !== null && val !== '')
+        ? String(val).slice(0, 19) : null;
+    }
+  }
+
+  /**
+   * 探测 FModifyDate 字段在金蝶 API 中是否可用
+   */
+  async _probeFModifyDate() {
+    try {
+      const result = await this.client.executeBillQuery('SFC_OperationReport', {
+        limit: 1,
+        offset: 0,
+        fieldKeys: ['FDate', 'FModifyDate'],
+        filter: "FDOCUMENTSTATUS = 'C'",
+        skipDateFilter: true,
+      });
+
+      let rows = result && result.data;
+      if (rows && typeof rows === 'object' && !Array.isArray(rows) && Array.isArray(rows.Result)) {
+        rows = rows.Result;
+      }
+
+      if (Array.isArray(rows) && rows.length > 1) {
+        const dataStart = (Array.isArray(rows[0]) && rows[0].some(h => typeof h === 'string' && /^F[A-Z]/.test(h))) ? 1 : 0;
+        const row = rows[dataStart];
+        if (row && row[1] && String(row[1]).length > 0) {
+          console.log(`[agg] FModifyDate 探测成功: ${row[1]}`);
+          return true;
+        }
+      }
+      console.warn('[agg] FModifyDate 探测失败：字段为空');
+      return false;
+    } catch (err) {
+      console.warn(`[agg] FModifyDate 探测失败: ${err.message}`);
+      return false;
+    }
   }
 
   /**
