@@ -17,6 +17,7 @@ const config = require('./config');
 const monitorRouter = require('./routes/monitor');
 const authRouter = require('./routes/auth');
 const { authMiddleware } = require('./middleware/auth');
+const PowerSyncService = require('./services/powerSyncService');
 
 const app = express();
 const PORT = config.server.port;
@@ -40,6 +41,34 @@ app.use('/api/monitor', authMiddleware, monitorRouter);
 
 // 初始化聚合引擎并预热缓存
 const engine = monitorRouter.initEngine();
+
+// 初始化电表数据同步服务
+const powerService = new PowerSyncService();
+const powerInitialized = powerService.initialize();
+if (powerInitialized) {
+  // 注册到 monitor router
+  monitorRouter.setPowerService(powerService);
+
+  // 如果电表 API 已配置且有数据需要同步
+  if (powerService.isMeterConfigured()) {
+    // 启动时尝试同步（不阻塞）
+    if (!powerService.store.hasData()) {
+      powerService.sync().then(() => {
+        console.log('[server] 电表数据首次同步完成');
+      }).catch(err => {
+        console.warn(`[server] 电表数据首次同步失败: ${err.message}`);
+      });
+    } else {
+      console.log('[server] 电表数据已存在，跳过首次同步');
+    }
+    // 注册每日 8:00 定时同步
+    powerService.scheduleDaily();
+  } else {
+    console.log('[server] 电表 API 未配置，跳过同步');
+  }
+} else {
+  console.log('[server] 电表服务未初始化（降级运行）');
+}
 
 // 异步预热（不阻塞 listen）
 (async () => {
@@ -125,6 +154,14 @@ app.get('/', (req, res) => {
   });
 });
 
+// ==== 前端静态文件 ====
+const frontendDist = path.resolve(__dirname, '../../frontend/dashboard/dist');
+app.use('/monitor', express.static(frontendDist));
+// SPA 回退：/monitor/* 不匹配文件时返回 index.html
+app.use('/monitor/*', (req, res) => {
+  res.sendFile(path.join(frontendDist, 'index.html'));
+});
+
 // ==== 404 ====
 app.use((req, res) => {
   res.status(404).json({ code: 404, msg: 'Not Found' });
@@ -149,6 +186,9 @@ process.on('SIGINT', () => {
   if (engine && engine.db) {
     engine.db.close();
   }
+  if (powerService && powerService.store) {
+    powerService.store.close();
+  }
   process.exit(0);
 });
 
@@ -156,6 +196,9 @@ process.on('SIGTERM', () => {
   console.log('[server] 收到 SIGTERM，正在关闭...');
   if (engine && engine.db) {
     engine.db.close();
+  }
+  if (powerService && powerService.store) {
+    powerService.store.close();
   }
   process.exit(0);
 });

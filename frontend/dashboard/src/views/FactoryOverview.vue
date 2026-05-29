@@ -23,6 +23,18 @@ const availableYears = [2025, 2026]
 const loading = ref(true)
 const overviewData = ref(null)
 
+const totalPower = computed(() => {
+  return overviewData.value?.totalPower ?? null
+})
+
+const totalPowerCost = computed(() => {
+  return overviewData.value?.totalPowerCost ?? null
+})
+
+const powerTrend = computed(() => {
+  return overviewData.value?.powerTrend || []
+})
+
 const loadRateTrendData = computed(() => {
   return overviewData.value?.loadRateTrend || []
 })
@@ -111,6 +123,12 @@ watch(currentYear, loadData)
         color="#1890ff"
       />
       <MetricCard
+        title="总电量"
+        :value="totalPower !== null ? totalPower.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '--'"
+        unit="kWh"
+        color="#f97316"
+      />
+      <MetricCard
         title="平均负荷率"
         :value="overviewData?.avgLoadRate ?? '--'"
         unit="%"
@@ -158,6 +176,8 @@ watch(currentYear, loadData)
           :total-output="ws.totalOutput"
           :load-rate="ws.loadRate"
           :status="ws.status"
+          :power="ws.power"
+          :power-cost="ws.powerCost"
           @click="onWorkshopClick(ws.name)"
         />
       </div>
@@ -190,6 +210,18 @@ watch(currentYear, loadData)
           title="平均负荷率趋势"
           :height="300"
           :target-line="85"
+          line-color="#1890ff"
+        />
+      </div>
+    </div>
+
+    <!-- 用电量趋势图 -->
+    <div v-if="powerTrend.length > 0" class="chart-row">
+      <div class="chart-col chart-full">
+        <TrendLine
+          :data="powerTrend"
+          title="全厂用电量趋势"
+          :height="300"
           line-color="#1890ff"
         />
       </div>
@@ -268,7 +300,7 @@ watch(currentYear, loadData)
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
 }
 
@@ -309,7 +341,7 @@ watch(currentYear, loadData)
 
 .skeleton-metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
 }
 
@@ -350,7 +382,7 @@ watch(currentYear, loadData)
 }
 
 @media (max-width: 1200px) {
-  .skeleton-metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .skeleton-metric-grid { grid-template-columns: repeat(3, 1fr); }
   .skeleton-workshop-grid { grid-template-columns: repeat(2, 1fr); }
   .skeleton-chart-row { grid-template-columns: 1fr; }
 }
@@ -361,7 +393,7 @@ watch(currentYear, loadData)
 }
 
 @media (max-width: 1200px) {
-  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .metric-grid { grid-template-columns: repeat(3, 1fr); }
   .workshop-grid { grid-template-columns: repeat(2, 1fr); }
   .chart-row { grid-template-columns: 1fr; }
 }

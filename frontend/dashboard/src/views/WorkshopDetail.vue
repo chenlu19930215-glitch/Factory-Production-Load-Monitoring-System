@@ -23,6 +23,10 @@ const availableYears = [2025, 2026]
 const loading = ref(true)
 const detailData = ref(null)
 
+const powerTrend = computed(() => {
+  return detailData.value?.powerTrend || []
+})
+
 const workshopName = computed(() => route.params.name)
 
 async function loadData() {
@@ -131,6 +135,18 @@ watch(
           title="负荷率趋势"
           :height="300"
           line-color="#faad14"
+        />
+      </div>
+    </div>
+
+    <!-- 用电量趋势图 -->
+    <div v-if="powerTrend.length > 0" class="chart-row">
+      <div class="chart-col chart-full">
+        <TrendLine
+          :data="powerTrend"
+          title="用电量趋势"
+          :height="300"
+          line-color="#1890ff"
         />
       </div>
     </div>

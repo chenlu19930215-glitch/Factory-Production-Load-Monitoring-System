@@ -19,6 +19,9 @@ const router = express.Router();
 /** @type {AggregationEngine} */
 let engine = null;
 
+/** @type {import('../services/powerSyncService')} */
+let powerService = null;
+
 /**
  * 初始化聚合引擎（在服务启动时调用）
  */
@@ -36,6 +39,13 @@ function getEngine() {
     initEngine();
   }
   return engine;
+}
+
+/**
+ * 设置电表数据服务（可选，不设置则降级）
+ */
+function setPowerService(ps) {
+  powerService = ps;
 }
 
 // 内联缓存：key = `${dimension}_${endpoint}_{params}`
@@ -89,7 +99,58 @@ function fail(res, status, msg) {
   return res.status(status).json({ code: status, msg });
 }
 
+/**
+ * 将电表数据合并到车间详情响应
+ */
+function mergePowerToWorkshopDetail(data, workshopName, dimension, year) {
+  if (!powerService || !powerService.isAvailable()) return;
+
+  try {
+    const powerTrend = powerService.getWorkshopPowerTrend(workshopName, dimension, year);
+    data.powerTrend = powerTrend;
+
+    data.powerCostTrend = powerService.getWorkshopPowerCostTrend(workshopName, dimension, year);
+
+    const latestKwh = powerService.getLatestWorkshopPower(workshopName, dimension, year);
+    data.totalPower = latestKwh;
+    data.totalPowerCost = +(latestKwh * powerService.pricePerKwh).toFixed(2);
+  } catch (err) {
+    console.warn('[monitor] 车间电表数据合并失败:', err.message);
+  }
+}
+
 // ====== 1. 工厂总览 ======
+
+/**
+ * 将电表数据合并到总览响应（如果 powerService 可用）
+ */
+function mergePowerToOverview(data, dimension, year) {
+  if (!powerService || !powerService.isAvailable()) return;
+
+  try {
+    // 全厂用电量趋势（kWh）
+    const powerTrend = powerService.getPowerTrend(dimension, year);
+    data.powerTrend = powerTrend;
+
+    // 全厂电费趋势（元）
+    data.powerCostTrend = powerService.getPowerCostTrend(dimension, year);
+
+    // 当前最新时段用电量
+    const latestKwh = powerService.getLatestPower(dimension, year);
+    data.totalPower = latestKwh;
+    data.totalPowerCost = +(latestKwh * powerService.pricePerKwh).toFixed(2);
+
+    // 各车间用电量
+    const wsPowerMap = powerService.getWorkshopPowerMap(dimension, year);
+    for (const ws of data.workshops) {
+      const wsKwh = wsPowerMap.get(ws.name) || 0;
+      ws.power = wsKwh;
+      ws.powerCost = +(wsKwh * powerService.pricePerKwh).toFixed(2);
+    }
+  } catch (err) {
+    console.warn('[monitor] 电表数据合并失败:', err.message);
+  }
+}
 
 /**
  * GET /api/monitor/overview
@@ -110,6 +171,7 @@ router.get('/overview', async (req, res) => {
   try {
     const eng = getEngine();
     const data = await eng.getOverview(dimension, year);
+    mergePowerToOverview(data, dimension, year);
     setCache(cacheKey, data);
     return success(res, data);
   } catch (err) {
@@ -178,6 +240,7 @@ router.get('/workshop/:id', async (req, res) => {
   try {
     const eng = getEngine();
     const data = await eng.getWorkshopDetail(workshopName, dimension, year);
+    mergePowerToWorkshopDetail(data, workshopName, dimension, year);
     setCache(cacheKey, data);
     return success(res, data);
   } catch (err) {
@@ -254,6 +317,17 @@ router.get('/health', async (req, res) => {
     lastSyncTime = eng.db.getMeta('lastSyncTime');
   }
 
+  // 电表服务状态
+  let powerStatus = 'not_configured';
+  let powerRecordCount = 0;
+  let powerLastSync = null;
+  if (powerService) {
+    const avail = powerService.isAvailable();
+    powerStatus = avail ? (powerService.isMeterConfigured() ? 'connected' : 'not_configured') : 'error';
+    powerRecordCount = powerService.getRecordCount();
+    powerLastSync = powerService.getLastSyncTime();
+  }
+
   return success(res, {
     status: configured && loggedIn ? 'connected' : configured ? 'not_logged_in' : 'not_configured',
     configured,
@@ -263,8 +337,12 @@ router.get('/health', async (req, res) => {
     sqlite: sqliteStatus,
     recordCount,
     lastSyncTime,
+    power: powerStatus,
+    powerRecordCount,
+    powerLastSync,
   });
 });
 
 module.exports = router;
 module.exports.initEngine = initEngine;
+module.exports.setPowerService = setPowerService;

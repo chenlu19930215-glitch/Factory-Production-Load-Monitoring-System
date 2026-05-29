@@ -1,6 +1,32 @@
 node_modules/
 dist/
 .env
+*.db
+*.db-wal
+*.db-shm
+cache/
+.claude/
+.agents/
+.superpowers/
 *.log
-.DS_Store
+.DS_File
 Thumbs.db
+
+# other projects in workspace
+AI表格取数据/
+包装装载优化软件/
+山姆PDQ/
+工厂负载监控系统/
+网站备案/
+一家园工厂可视化项目/
+一家园智能电表数据获取/
+金蝶云星空-AI表格数据源/
+金蝶云星空-AI表格数据源-单机部署/
+
+# dev debris
+frontend/dashboard/login.json
+server/src/probe_*.js
+server/src/debug_*.js
+server/src/diag_*.js
+decode_formid.py
+=
